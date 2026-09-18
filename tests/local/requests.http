@@ -1,0 +1,32 @@
+@baseUrl = http://localhost:5005
+@apiKey = YOUR_API_KEY_HERE
+
+### Get API Health (Liveness Probe)
+GET {{baseUrl}}/health
+
+### Get API Readiness (Readiness Probe)
+GET {{baseUrl}}/ready
+
+### Get Swagger UI
+GET {{baseUrl}}/
+
+### Get Address API Information
+GET {{baseUrl}}/api/addresses/info
+
+### Search for addresses by postcode (Westminster, London)
+GET {{baseUrl}}/api/addresses/search?postcode=SW1A1AA
+
+### Search for addresses with spaced postcode
+GET {{baseUrl}}/api/addresses/search?postcode=SW1A%201AA
+
+### Search for addresses by postcode (Buckingham Palace area)
+GET {{baseUrl}}/api/addresses/search?postcode=SW1A2AA
+
+### Search for addresses by postcode (Tower of London)
+GET {{baseUrl}}/api/addresses/search?postcode=EC3N4AB
+
+### Test with invalid postcode (empty)
+GET {{baseUrl}}/api/addresses/search?postcode=
+
+### Test with postcodelike format
+GET {{baseUrl}}/api/addresses/search?postcode=M11AA

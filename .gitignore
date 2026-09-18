@@ -1,0 +1,19 @@
+## .NET build output
+**/bin/
+**/obj/
+
+## User-specific files
+.vs/
+*.user
+*.suo
+
+## Local configuration and secrets
+appsettings.Local.json
+*.local.json
+
+## Test and coverage output
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+*.opencover.xml

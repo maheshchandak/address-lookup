@@ -1,0 +1,24 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "AddressLookupApi (Debug)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build-address-api",
+            "program": "${workspaceFolder}/src/AddressLookupApi/bin/Debug/net8.0/AddressLookupApi.dll",
+            "args": [],
+            "cwd": "${workspaceFolder}/src/AddressLookupApi",
+            "stopAtEntry": false,
+            "console": "integratedTerminal",
+            "env": {
+                "ASPNETCORE_ENVIRONMENT": "Development",
+                "ASPNETCORE_URLS": "http://localhost:5005"
+            },
+            "serverReadyAction": {
+                "action": "openExternally",
+                "pattern": "\\bNow listening on:\\s+(http://localhost:5005)"
+            }
+        }
+    ]
+}
