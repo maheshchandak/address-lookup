@@ -1,8 +1,8 @@
 # Address Lookup API - Project Phases Documentation
 
 **Project**: Address Lookup API  
-**Status**: Phase 1 complete; Phase 2 next  
-**Last Updated**: 2026-09-18  
+**Status**: Phases 1, 2, and 3 (Docker image + local container verification) complete; ACR setup and Phase 4 next  
+**Last Updated**: 2026-09-19  
 **Repository**: c:\MaHESH\Learn\CoPilot\address-lookup
 
 ---
@@ -16,7 +16,7 @@ infrastructure, Kubernetes, and GitHub Actions.
 ### Current Architecture
 
 - **Application**: ASP.NET Core 8 Web API
-- **Postcode provider**: Postcodes.io (`https://api.postcodes.io`), currently requiring no API key
+- **Postcode provider**: Postcodes.io (`https://api.postcodes.io`), with the configured endpoint stored as a secret
 - **Local API**: `http://localhost:5005`
 - **Deployment target**: Azure Kubernetes Service
 - **Planned security**: Azure Key Vault and managed identity
@@ -226,22 +226,22 @@ curl http://localhost:5000/api/addresses/search?postcode=SW1A1AA
 
 ## Phase 2: Add Key Vault Integration
 
-**Status**: 🚧 IN PROGRESS  
+**Status**: ✅ COMPLETED  
 **Duration**: Security implementation  
-**Objectives**: Learn secure configuration using Azure Key Vault and managed identity. Because Postcodes.io currently requires no API key, this phase will use a representative application secret or future authenticated provider configuration.
+**Objectives**: Learn secure configuration using Azure Key Vault and managed identity. The Postcodes.io base URL is stored as the Phase 2 secret because the provider currently requires no API key.
 
 ### Deliverables
 
 #### Current implementation
 
-- Local development loads optional User Secrets when the environment is `Development`.
-- Azure Key Vault loads only when `KeyVault:VaultUri` is configured.
+- Local development loads the `AddressLookup:BaseUrl` value from User Secrets when the environment is `Development`.
+- Azure Key Vault loads the same setting as `AddressLookup--BaseUrl` when `KeyVault:VaultUri` is configured.
 - Key Vault authentication uses `DefaultAzureCredential`, which supports local Azure CLI credentials and Azure managed identity.
 - No secret values are stored in `appsettings.Development.json`.
 
-The remaining Phase 2 work is to create a Key Vault, grant the application identity
-the `Key Vault Secrets User` role, add a learning secret, and verify configuration
-loading locally and in Azure.
+Phase 2 verification completed against the `kv-cloudware-store` vault. The
+`AddressLookup--BaseUrl` secret is enabled and contains the configured Postcodes.io
+endpoint. The current Azure credential can read it.
 
 #### 1. **Local Secrets Configuration**
 
@@ -266,8 +266,8 @@ if (!string.IsNullOrWhiteSpace(keyVaultUri))
 # UserSecretsId is already configured in the project file
 dotnet user-secrets list --project src/AddressLookupApi/AddressLookupApi.csproj
 
-# Store a representative learning secret locally
-dotnet user-secrets set "AddressLookup:LearningSecret" "local-only-value" --project src/AddressLookupApi/AddressLookupApi.csproj
+# Store the provider endpoint locally, outside source control
+dotnet user-secrets set "AddressLookup:BaseUrl" "https://api.postcodes.io/postcodes" --project src/AddressLookupApi/AddressLookupApi.csproj
 
 # Configure Key Vault only when you have created the Azure resource
 dotnet user-secrets set "KeyVault:VaultUri" "https://your-keyvault.vault.azure.net/" --project src/AddressLookupApi/AddressLookupApi.csproj
@@ -289,15 +289,15 @@ dotnet user-secrets list
 
 **Configuration Binding**
 ```csharp
-// Automatic binding from configuration
-builder.Configuration["AddressLookup:LearningSecret"];
+// Read the setting supplied by User Secrets or Key Vault
+builder.Configuration["AddressLookup:BaseUrl"];
 
 // Direct Key Vault access (if needed)
 var secretClient = new SecretClient(
     new Uri(keyVaultUri),
     new DefaultAzureCredential());
 
-  var secret = await secretClient.GetSecretAsync("LearningSecret");
+  var secret = await secretClient.GetSecretAsync("AddressLookup--BaseUrl");
 ```
 
 #### 4. **Managed Identity Support**
@@ -309,7 +309,7 @@ var secretClient = new SecretClient(
 4. Azure CLI credentials
 5. Azure PowerShell credentials
 
-This allows seamless transition from local development → Azure deployment.
+This allows the same configuration key to work in local development and Azure.
 
 #### 5. **Environment Variables**
 
@@ -339,10 +339,8 @@ KeyVault__VaultUri=https://your-keyvault.vault.azure.net/
 Key Vault: address-lookup-kv
 
 Secrets:
-├── AddressLookup--LearningSecret
-│   └── Value: representative-secret-for-learning
 ├── AddressLookup--BaseUrl
-│   └── Value: https://api.postcodes.io
+│   └── Value: https://api.postcodes.io/postcodes
 ├── ApplicationInsights--InstrumentationKey
 │   └── Value: YOUR_APP_INSIGHTS_KEY
 └── Database--ConnectionString
@@ -352,11 +350,11 @@ Secrets:
 ### Running Phase 2
 
 ```bash
-# 1. Store a local-only learning secret
-dotnet user-secrets set "AddressLookup:LearningSecret" "local-only-value" --project src/AddressLookupApi/AddressLookupApi.csproj
-
-# 2. Set local secrets
+# 1. Confirm the local configuration is available
 dotnet user-secrets list --project src/AddressLookupApi/AddressLookupApi.csproj
+
+# 2. Confirm the Azure credential can access the configured Key Vault
+#    and that AddressLookup--BaseUrl exists and is enabled.
 
 # 3. Configure environment
 $env:ASPNETCORE_ENVIRONMENT = "Development"
@@ -373,18 +371,28 @@ dotnet run
 - [x] User Secrets configured locally
 - [x] Key Vault NuGet packages installed
 - [x] DefaultAzureCredential implemented
-- [x] API reads secrets from Key Vault in Azure
+- [x] API reads `AddressLookup--BaseUrl` from Key Vault in Azure
 - [x] Local development uses User Secrets
 - [x] No secrets in source code
-- [x] Secrets rotation supported
+- [x] Configuration can be changed without modifying source code
 
 ---
 
 ## Phase 3: Dockerfile & ACR Setup
 
-**Status**: ⬜ NOT STARTED  
+**Status**: 🟡 PARTIALLY COMPLETE (Docker image built and verified locally; ACR push not yet performed)  
 **Duration**: Containerization  
 **Objectives**: Create production-ready Docker image and Azure Container Registry setup
+
+### Verified on 2026-09-19
+
+- `docker build -t address-lookup-api:phase3 -f Dockerfile .` succeeds (multi-stage build, final image ~95MB content size).
+- Dockerfile adds a `HEALTHCHECK` instruction (`curl -f http://localhost:8080/health`) backed by `curl` installed in the runtime stage.
+- `docker run` with `ASPNETCORE_ENVIRONMENT=Production` and `AddressLookup__BaseUrl=https://api.postcodes.io/postcodes` starts successfully; `docker ps` and `docker inspect --format='{{.State.Health.Status}}'` report `healthy`.
+- `GET /health` and `GET /ready` return `200 OK` with `{"status":"Healthy", ...}`.
+- `GET /api/addresses/search?postcode=SW1A1AA` returns `200 OK` with a valid address payload, confirming outbound HTTPS to Postcodes.io works from inside the container.
+- Container runs as the non-root `$APP_UID` user (built-in .NET 8 aspnet image convention).
+- Azure Container Registry (ACR) creation and image push have **not** been done yet — remaining work for Phase 3 completion.
 
 ### Deliverables
 
@@ -567,9 +575,9 @@ docker-compose down
 - [x] Image builds successfully
 - [x] Container runs locally without errors
 - [x] Health check endpoint works
-- [x] ACR created and accessible
-- [x] Image pushed to ACR successfully
-- [x] Image runs from ACR in container
+- [ ] ACR created and accessible
+- [ ] Image pushed to ACR successfully
+- [ ] Image runs from ACR in container
 - [x] Non-root user implemented
 - [x] Image size optimized
 
@@ -1980,18 +1988,18 @@ This document provides a comprehensive reference for all 8 phases of the Address
 
 1. ✅ **Phase 1**: Created .NET Core Web API scaffold with base functionality
 2. ✅ **Phase 2**: Integrated Azure Key Vault for secure secret management
-3. ✅ **Phase 3**: Built Docker containers and Azure Container Registry setup
-4. ✅ **Phase 4**: Defined infrastructure as code using Bicep templates
-5. ✅ **Phase 5**: Created Kubernetes manifests for production deployment
-6. ✅ **Phase 6 & 7**: Implemented GitHub Actions CI/CD pipeline with OIDC
-7. ✅ **Phase 8**: Completed comprehensive testing and verification
+3. 🟡 **Phase 3**: Docker image built and health-verified locally; ACR setup still pending
+4. ⬜ **Phase 4**: Infrastructure as code pending
+5. ⬜ **Phase 5**: Kubernetes manifests pending
+6. ⬜ **Phase 6 & 7**: GitHub Actions CI/CD pipeline pending
+7. ⬜ **Phase 8**: Testing and verification pending
 
-**Status**: Local development complete; deployment phases pending
+**Status**: Local development and local container verification complete; ACR and deployment phases pending
 
 For questions or issues, refer to the specific phase section or review the troubleshooting guide in Phase 8.
 
 ---
 
 **Document Version**: 1.0.0  
-**Last Updated**: 2026-09-18  
+**Last Updated**: 2026-09-19  
 **Maintainer**: Mahesh

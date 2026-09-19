@@ -12,13 +12,14 @@ public class AddressService : IAddressService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<AddressService> _logger;
-
-    private const string BaseUrl = "https://api.postcodes.io/postcodes";
+    private readonly string _baseUrl;
 
     public AddressService(HttpClient httpClient, ILogger<AddressService> logger, IConfiguration configuration)
     {
         _httpClient = httpClient;
         _logger = logger;
+        _baseUrl = configuration["AddressLookup:BaseUrl"]?.TrimEnd('/')
+            ?? throw new InvalidOperationException("AddressLookup:BaseUrl is not configured.");
     }
 
     /// <inheritdoc/>
@@ -35,7 +36,7 @@ public class AddressService : IAddressService
 
         try
         {
-            var url = $"{BaseUrl}/{normalizedPostcode}";
+            var url = $"{_baseUrl}/{normalizedPostcode}";
             var response = await _httpClient.GetAsync(url, cancellationToken);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)

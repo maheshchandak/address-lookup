@@ -1,0 +1,20 @@
+**/bin/
+**/obj/
+
+.git/
+.vs/
+.vscode/
+
+ tests/
+*.user
+*.suo
+*.log
+
+appsettings.Local.json
+*.local.json
+
+Dockerfile*
+.dockerignore
+docker-compose*.yml
+PHASES.md
+README.md

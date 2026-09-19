@@ -17,6 +17,9 @@ public class AddressServiceTests
     public AddressServiceTests()
     {
         _configurationMock = new Mock<IConfiguration>();
+        _configurationMock
+            .Setup(configuration => configuration["AddressLookup:BaseUrl"])
+            .Returns("https://api.postcodes.io/postcodes");
         _loggerMock = new Mock<ILogger<AddressService>>();
         _httpClient = new HttpClient(new MockHttpMessageHandler());
     }
@@ -54,7 +57,7 @@ public class AddressServiceTests
     }
 
     [Fact]
-    public async Task SearchByPostcodeAsync_WithNullApiKey_ThrowsInvalidOperationException()
+    public async Task SearchByPostcodeAsync_WithConfiguredBaseUrl_ReturnsAddresses()
     {
         // Arrange
         var service = new AddressService(_httpClient, _loggerMock.Object, _configurationMock.Object);
@@ -62,6 +65,15 @@ public class AddressServiceTests
         // Act & Assert
         var result = await service.SearchByPostcodeAsync("SW1A1AA");
         Assert.NotNull(result);
+    }
+
+    [Fact]
+    public void Constructor_WithMissingBaseUrl_ThrowsInvalidOperationException()
+    {
+        var configuration = new Mock<IConfiguration>();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            new AddressService(_httpClient, _loggerMock.Object, configuration.Object));
     }
 
     [Theory]
