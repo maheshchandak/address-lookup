@@ -112,7 +112,7 @@ jobs:
             --name "deployment-$(date +%s)" \
             --resource-group "$RG_NAME" \
             --template-file "${{ env.BICEP_FILE }}" \
-            --parameters \
+            --parameters "${{ env.BICEP_PARAM_FILE }}" \
               location="${{ github.event.inputs.region }}" \
               environment="${{ github.event.inputs.environment }}" \
               nodeCount=${{ github.event.inputs.nodeCount }} \
