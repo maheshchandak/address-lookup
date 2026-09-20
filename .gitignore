@@ -10,6 +10,8 @@
 ## Local configuration and secrets
 appsettings.Local.json
 *.local.json
+.env
+.env.local
 
 ## Test and coverage output
 TestResults/

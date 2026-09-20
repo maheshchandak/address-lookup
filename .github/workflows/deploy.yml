@@ -1,0 +1,136 @@
+name: Deploy to AKS
+
+on:
+  push:
+    branches: [ main,master]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  REGISTRY: addresslookupacr.azurecr.io
+  IMAGE_NAME: address-lookup-api
+  CLUSTER_NAME: aks-address-lookup
+  RESOURCE_GROUP: rg-address-lookup
+  REGION: uksouth
+  NAMESPACE: default
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment || 'production' }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login (Federated Credentials)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - name: Extract image tag
+        id: image
+        run: |
+          # Use commit SHA as tag
+          TAG=sha-$(git rev-parse --short HEAD)
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$TAG" >> $GITHUB_OUTPUT
+
+      - name: Set image in deployment
+        run: |
+          kubectl set image deployment/address-lookup-api \
+            address-lookup-api=${{ steps.image.outputs.image }} \
+            --namespace=${{ env.NAMESPACE }} \
+            --record
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/address-lookup-api \
+            --namespace=${{ env.NAMESPACE }} \
+            --timeout=5m
+
+      - name: Get service info
+        id: service
+        run: |
+          kubectl get svc address-lookup-api --namespace=${{ env.NAMESPACE }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' > /tmp/lb-ip.txt
+          LB_IP=$(cat /tmp/lb-ip.txt)
+          echo "external-ip=$LB_IP" >> $GITHUB_OUTPUT
+          echo "External IP: $LB_IP"
+
+      - name: Health check
+        run: |
+          LB_IP=${{ steps.service.outputs.external-ip }}
+          echo "Checking health of $LB_IP..."
+          
+          # Wait up to 60 seconds for endpoint to be ready
+          for i in {1..12}; do
+            if curl -f "http://${LB_IP}/health" > /dev/null 2>&1; then
+              echo "✅ Health check passed"
+              exit 0
+            fi
+            echo "Attempt $i/12: Waiting for endpoint to be ready..."
+            sleep 5
+          done
+          
+          echo "❌ Health check failed after 60 seconds"
+          exit 1
+
+      - name: Smoke test
+        run: |
+          LB_IP=${{ steps.service.outputs.external-ip }}
+          echo "Running smoke test against $LB_IP..."
+          
+          RESPONSE=$(curl -s "http://${LB_IP}/api/addresses/search?postcode=SW1A1AA")
+          COUNT=$(echo "$RESPONSE" | jq -r '.count')
+          
+          if [ "$COUNT" -gt 0 ]; then
+            echo "✅ Smoke test passed (found $COUNT addresses)"
+            exit 0
+          else
+            echo "❌ Smoke test failed (no addresses found)"
+            exit 1
+          fi
+
+      - name: Get pod status
+        if: always()
+        run: |
+          echo "=== Pod Status ==="
+          kubectl get pods -n ${{ env.NAMESPACE }} -l app=address-lookup-api
+          
+          echo -e "\n=== Pod Events ==="
+          kubectl get events -n ${{ env.NAMESPACE }} --sort-by='.lastTimestamp' | tail -10
+          
+          echo -e "\n=== Pod Logs (last 50 lines) ==="
+          kubectl logs -n ${{ env.NAMESPACE }} -l app=address-lookup-api --tail=50
+
+      - name: Rollback on failure
+        if: failure() && github.event_name == 'push'
+        run: |
+          echo "Deployment failed, rolling back..."
+          kubectl rollout undo deployment/address-lookup-api --namespace=${{ env.NAMESPACE }}
+          kubectl rollout status deployment/address-lookup-api --namespace=${{ env.NAMESPACE }} --timeout=5m
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "✅ Deployment to ${{ env.CLUSTER_NAME }} successful"
+          echo "External IP: ${{ steps.service.outputs.external-ip }}"
+          echo "Image: ${{ steps.image.outputs.image }}"
+          echo "Endpoint: http://${{ steps.service.outputs.external-ip }}/api/addresses/search?postcode=SW1A1AA"

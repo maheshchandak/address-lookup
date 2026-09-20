@@ -1,0 +1,137 @@
+---
+# Address Lookup API Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: address-lookup-api
+  namespace: default
+  labels:
+    app: address-lookup-api
+    version: "1.0"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: address-lookup-api
+  template:
+    metadata:
+      labels:
+        app: address-lookup-api
+        version: "1.0"
+    spec:
+      serviceAccountName: address-lookup-api
+      containers:
+        - name: address-lookup-api
+          image: addresslookupacr.azurecr.io/address-lookup-api:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: "Production"
+            - name: ASPNETCORE_URLS
+              value: "http://+:8080"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 1000
+      securityContext:
+        fsGroup: 1000
+
+---
+# Service Account for Address Lookup API
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: address-lookup-api
+  namespace: default
+  labels:
+    app: address-lookup-api
+
+---
+# ClusterRole for Address Lookup API
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: address-lookup-api
+  labels:
+    app: address-lookup-api
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "services"]
+    verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding for Address Lookup API
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: address-lookup-api
+  labels:
+    app: address-lookup-api
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: address-lookup-api
+subjects:
+  - kind: ServiceAccount
+    name: address-lookup-api
+    namespace: default
+
+---
+# Service for Address Lookup API
+apiVersion: v1
+kind: Service
+metadata:
+  name: address-lookup-api
+  namespace: default
+  labels:
+    app: address-lookup-api
+spec:
+  type: LoadBalancer
+  selector:
+    app: address-lookup-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+  sessionAffinity: None

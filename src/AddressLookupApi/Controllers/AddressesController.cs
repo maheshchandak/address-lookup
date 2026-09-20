@@ -38,6 +38,8 @@ public class AddressesController : ControllerBase
         [FromQuery] string postcode,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation("SearchByPostcode endpoint called with postcode: {Postcode}", postcode);
+        
         if (string.IsNullOrWhiteSpace(postcode))
         {
             var error = new ErrorResponse

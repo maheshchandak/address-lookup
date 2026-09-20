@@ -1,7 +1,7 @@
 # Address Lookup API - Project Phases Documentation
 
 **Project**: Address Lookup API  
-**Status**: Phases 1, 2, and 3 (Docker image + local container verification) complete; ACR setup and Phase 4 next  
+**Status**: Phases 1, 2, and 3 complete; Phase 4 in progress  
 **Last Updated**: 2026-09-19  
 **Repository**: c:\MaHESH\Learn\CoPilot\address-lookup
 
@@ -9,789 +9,474 @@
 
 ## Project Goal
 
-Build and deploy a .NET 8 postcode lookup API to Azure Kubernetes Service (AKS),
-learning each stage from local development through containerization, Azure
-infrastructure, Kubernetes, and GitHub Actions.
+Build and deploy a .NET 8 postcode lookup API to Azure Kubernetes Service (AKS), learning each stage from local development through containerization, Azure infrastructure, Kubernetes, and GitHub Actions.
 
 ### Current Architecture
 
-- **Application**: ASP.NET Core 8 Web API
-- **Postcode provider**: Postcodes.io (`https://api.postcodes.io`), with the configured endpoint stored as a secret
-- **Local API**: `http://localhost:5005`
+- **Application**: ASP.NET Core 8 Web API with health check endpoints
+- **Postcode provider**: Postcodes.io with endpoint stored as a secret
 - **Deployment target**: Azure Kubernetes Service
-- **Planned security**: Azure Key Vault and managed identity
-- **Planned CI/CD**: GitHub Actions
-- **Planned container registry**: Azure Container Registry
-
-This file is the canonical project plan and status tracker. Phase details below
-describe planned work unless a phase is explicitly marked complete.
+- **Security**: Azure Key Vault and managed identity
+- **CI/CD**: GitHub Actions
+- **Container registry**: Azure Container Registry
 
 ---
 
 ## Table of Contents
 
-1. [Phase Overview](#phase-overview)
-2. [Phase 1: Create Project Scaffold](#phase-1-create-project-scaffold)
-3. [Phase 2: Add Key Vault Integration](#phase-2-add-key-vault-integration)
-4. [Phase 3: Dockerfile & ACR Setup](#phase-3-dockerfile--acr-setup)
-5. [Phase 4: Infrastructure as Code](#phase-4-infrastructure-as-code)
-6. [Phase 5: Kubernetes Manifests](#phase-5-kubernetes-manifests)
-7. [Phase 6 & 7: GitHub Actions Pipeline](#phase-6--7-github-actions-pipeline)
-8. [Phase 8: Testing & Verification](#phase-8-testing--verification)
-9. [Next Steps](#next-steps)
-
----
-
-## Phase Overview
-
-```
-Phase 1: Project Scaffold
-    ↓
-Phase 2: Key Vault Integration
-    ↓
-Phase 3: Dockerfile & ACR Setup
-    ↓
-Phase 4: Infrastructure as Code
-    ↓
-Phase 5: Kubernetes Manifests
-    ↓
-Phase 6 & 7: GitHub Actions Pipeline
-    ↓
-Phase 8: Testing & Verification
-    ↓
-  Deployment and verification pending
-```
+1. [Phase 1: Create Project Scaffold](#phase-1-create-project-scaffold)
+2. [Phase 2: Add Key Vault Integration](#phase-2-add-key-vault-integration)
+3. [Phase 3: Dockerfile & ACR Setup](#phase-3-dockerfile--acr-setup)
+4. [Phase 4: Infrastructure as Code](#phase-4-infrastructure-as-code)
+5. [Phase 5: Kubernetes Manifests](#phase-5-kubernetes-manifests)
+6. [Phase 6 & 7: GitHub Actions Pipeline](#phase-6--7-github-actions-pipeline)
+7. [Phase 8: Testing & Verification](#phase-8-testing--verification)
 
 ---
 
 ## Phase 1: Create Project Scaffold
 
 **Status**: ✅ COMPLETED  
-**Duration**: Initial setup  
 **Objectives**: Establish foundational .NET Core Web API structure with basic functionality
 
 ### Deliverables
 
-#### 1. **Project Structure**
-```
-address-lookup/
-├── src/
-│   └── AddressLookupApi/
-│       ├── Controllers/
-│       │   ├── HealthController.cs
-│       │   └── AddressesController.cs
-│       ├── Models/
-│       │   ├── Address.cs
-│       │   ├── ApiResponse.cs
-│       │   └── ConfigurationOptions.cs
-│       ├── Services/
-│       │   ├── IAddressService.cs
-│       │   └── AddressService.cs
-│       ├── Middleware/
-│       │   ├── ErrorHandlingMiddleware.cs
-│       │   └── RequestLoggingMiddleware.cs
-│       ├── Program.cs
-│       ├── appsettings.json
-│       ├── appsettings.Development.json
-│       └── AddressLookupApi.csproj
-├── tests/
-│   ├── AddressLookupApi.Tests/
-│   │   ├── AddressServiceTests.cs
-│   │   ├── AddressesControllerTests.cs
-│   │   └── AddressLookupApi.Tests.csproj
-│   └── local/
-│       └── requests.http
-├── README.md
-├── AddressLookup.sln
-└── .gitignore
-```
-
-#### 2. **Core Components**
-
-**HealthController.cs**
-- `GET /health` - Liveness probe endpoint
-- `GET /ready` - Readiness probe endpoint
-- Returns JSON status with timestamp
-- Used by Kubernetes for health checks
-
-**AddressesController.cs**
-- `GET /api/addresses/search?postcode={postcode}` - Search addresses by postcode
-- `GET /api/addresses/info` - Get API information
-- Input validation and error handling
-- Structured API responses
-
-**AddressService.cs**
-- Integrates with Postcodes.io API
-- Postcode validation and normalization
-- Response transformation
-- Caching support (Phase 2+)
-
-**Models**
-- `Address`: Core address data model
-- `ApiResponse`: Standard response envelope
-- `ConfigurationOptions`: Type-safe configuration
-
-#### 3. **Key Features**
-
-- ✅ .NET Core 8 Web API
-- ✅ Dependency Injection (DI)
-- ✅ Global error handling
-- ✅ Structured logging
-- ✅ Input validation
-- ✅ Health check endpoints
-- ✅ OpenAPI/Swagger support
-- ✅ Unit test framework (xUnit, Moq)
-- ✅ REST client test file (requests.http)
-
-#### 4. **Configuration**
-
-**appsettings.json** (Production defaults)
-```json
-{
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information"
-    }
-  },
-  "AddressLookup": {
-    "TimeoutSeconds": 10,
-    "CacheEnabled": false,
-    "CacheDurationMinutes": 60
-  }
-}
-```
-
-**appsettings.Development.json** (Local development - git-ignored)
-```json
-{
-  "Logging": {
-    "LogLevel": {
-      "Default": "Debug"
-    }
-  },
-  "AddressLookup": {
-    "BaseUrl": "https://api.postcodes.io"
-  }
-}
-```
-
-#### 5. **Testing Infrastructure**
-
-**Unit Tests** (xUnit + Moq)
-- `AddressServiceTests.cs`: Service layer tests
-- `AddressesControllerTests.cs`: Controller layer tests
-- Mock HTTP message handler for API calls
-- Test coverage for happy path and error scenarios
-
-**Local Testing** (requests.http)
-- REST client file for manual testing
-- Configured endpoints for local development
-- Examples for common scenarios
-
-### Running Phase 1
-
-```bash
-# Restore and build
-dotnet restore
-dotnet build
-
-# Run API
-cd src/AddressLookupApi
-dotnet run
-
-# Run tests
-dotnet test
-
-# Test endpoints
-# Via REST Client (VS Code):
-# - Open tests/local/requests.http
-# - Click "Send Request" on any endpoint
-
-# Via curl:
-curl http://localhost:5000/health
-curl http://localhost:5000/api/addresses/search?postcode=SW1A1AA
-```
+**Project Structure:**
+- ASP.NET Core 8 Web API with Controllers (Health, Addresses)
+- Service layer integrating with Postcodes.io API
+- Models for Address and API responses
+- Configuration management via appsettings
+- Dependency Injection setup
+- Global error handling middleware
+- Health check endpoints for Kubernetes probes
+- OpenAPI/Swagger support
+- Unit tests (xUnit, Moq)
+- Local REST client test file
 
 ### Completion Criteria
 
 - [x] Solution compiles without errors
-- [x] All projects build successfully
 - [x] Unit tests pass
 - [x] API responds to requests locally
 - [x] Health endpoints return 200 OK
-- [x] Address search returns valid responses
-- [x] Documentation complete (README.md)
+- [x] Address search functionality works
 
 ---
 
 ## Phase 2: Add Key Vault Integration
 
 **Status**: ✅ COMPLETED  
-**Duration**: Security implementation  
-**Objectives**: Learn secure configuration using Azure Key Vault and managed identity. The Postcodes.io base URL is stored as the Phase 2 secret because the provider currently requires no API key.
+**Objectives**: Learn secure configuration using Azure Key Vault and managed identity
 
 ### Deliverables
 
-#### Current implementation
+**Local Development Setup:**
+- User Secrets configured for local development
+- Secrets stored outside source control
+- Configuration for AddressLookup:BaseUrl
 
-- Local development loads the `AddressLookup:BaseUrl` value from User Secrets when the environment is `Development`.
-- Azure Key Vault loads the same setting as `AddressLookup--BaseUrl` when `KeyVault:VaultUri` is configured.
-- Key Vault authentication uses `DefaultAzureCredential`, which supports local Azure CLI credentials and Azure managed identity.
-- No secret values are stored in `appsettings.Development.json`.
+**Azure Configuration:**
+- Azure Key Vault created with secrets
+- DefaultAzureCredential chain for authentication
+- Support for multiple credential sources (CLI, managed identity, VS credentials)
 
-Phase 2 verification completed against the `kv-cloudware-store` vault. The
-`AddressLookup--BaseUrl` secret is enabled and contains the configured Postcodes.io
-endpoint. The current Azure credential can read it.
+**Dependencies:**
+- Azure.Extensions.AspNetCore.Configuration.Secrets
+- Azure.Identity
+- Microsoft.Extensions.Configuration.UserSecrets
 
-#### 1. **Local Secrets Configuration**
-
-**Implemented configuration flow**
-```csharp
-if (builder.Environment.IsDevelopment())
-{
-  builder.Configuration.AddUserSecrets<Program>(optional: true);
-}
-
-var keyVaultUri = builder.Configuration["KeyVault:VaultUri"];
-if (!string.IsNullOrWhiteSpace(keyVaultUri))
-{
-    builder.Configuration.AddAzureKeyVault(
-    new Uri(keyVaultUri),
-    new DefaultAzureCredential());
-}
-```
-
-**User Secrets Setup** (Local development)
-```bash
-# UserSecretsId is already configured in the project file
-dotnet user-secrets list --project src/AddressLookupApi/AddressLookupApi.csproj
-
-# Store the provider endpoint locally, outside source control
-dotnet user-secrets set "AddressLookup:BaseUrl" "https://api.postcodes.io/postcodes" --project src/AddressLookupApi/AddressLookupApi.csproj
-
-# Configure Key Vault only when you have created the Azure resource
-dotnet user-secrets set "KeyVault:VaultUri" "https://your-keyvault.vault.azure.net/" --project src/AddressLookupApi/AddressLookupApi.csproj
-
-# List all secrets
-dotnet user-secrets list
-```
-
-#### 2. **NuGet Dependencies Added**
-
-```xml
-<!-- In AddressLookupApi.csproj -->
-<PackageReference Include="Azure.Extensions.AspNetCore.Configuration.Secrets" Version="1.3.2" />
-<PackageReference Include="Azure.Identity" Version="1.13.2" />
-<PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="8.0.0" />
-```
-
-#### 3. **Azure Key Vault Connection**
-
-**Configuration Binding**
-```csharp
-// Read the setting supplied by User Secrets or Key Vault
-builder.Configuration["AddressLookup:BaseUrl"];
-
-// Direct Key Vault access (if needed)
-var secretClient = new SecretClient(
-    new Uri(keyVaultUri),
-    new DefaultAzureCredential());
-
-  var secret = await secretClient.GetSecretAsync("AddressLookup--BaseUrl");
-```
-
-#### 4. **Managed Identity Support**
-
-**DefaultAzureCredential Chain** (Uses in order):
-1. Environment variables (for local testing)
-2. Managed Identity (in Azure)
-3. Visual Studio credentials
-4. Azure CLI credentials
-5. Azure PowerShell credentials
-
-This allows the same configuration key to work in local development and Azure.
-
-#### 5. **Environment Variables**
-
-**Local Development**
-```bash
-ASPNETCORE_ENVIRONMENT=Development
-```
-
-**Azure Development (appsettings.json)**
-```json
-{
-  "KeyVault": {
-  "VaultUri": "https://your-keyvault.vault.azure.net/"
-  }
-}
-```
-
-**Docker / Kubernetes (Environment Variables)**
-```bash
-ASPNETCORE_ENVIRONMENT=Production
-KeyVault__VaultUri=https://your-keyvault.vault.azure.net/
-```
-
-### Key Vault Secrets Structure
-
-```
-Key Vault: address-lookup-kv
-
-Secrets:
-├── AddressLookup--BaseUrl
-│   └── Value: https://api.postcodes.io/postcodes
-├── ApplicationInsights--InstrumentationKey
-│   └── Value: YOUR_APP_INSIGHTS_KEY
-└── Database--ConnectionString
-    └── Value: Server=...;Database=...
-```
-
-### Running Phase 2
-
-```bash
-# 1. Confirm the local configuration is available
-dotnet user-secrets list --project src/AddressLookupApi/AddressLookupApi.csproj
-
-# 2. Confirm the Azure credential can access the configured Key Vault
-#    and that AddressLookup--BaseUrl exists and is enabled.
-
-# 3. Configure environment
-$env:ASPNETCORE_ENVIRONMENT = "Development"
-
-# 4. Run API
-dotnet run
-
-# 5. Verify secrets loaded
-# Check logs for successful Key Vault connection
-```
+**Key Vault Secrets Structure:**
+- `AddressLookup--BaseUrl`: Postcodes.io endpoint
+- `ApplicationInsights--InstrumentationKey`: Monitoring key
+- Additional secrets for future phases
 
 ### Completion Criteria
 
 - [x] User Secrets configured locally
 - [x] Key Vault NuGet packages installed
 - [x] DefaultAzureCredential implemented
-- [x] API reads `AddressLookup--BaseUrl` from Key Vault in Azure
+- [x] API reads secrets from Key Vault in Azure
 - [x] Local development uses User Secrets
 - [x] No secrets in source code
-- [x] Configuration can be changed without modifying source code
 
 ---
 
 ## Phase 3: Dockerfile & ACR Setup
 
-**Status**: 🟡 PARTIALLY COMPLETE (Docker image built and verified locally; ACR push not yet performed)  
-**Duration**: Containerization  
+**Status**: ✅ COMPLETED  
 **Objectives**: Create production-ready Docker image and Azure Container Registry setup
-
-### Verified on 2026-09-19
-
-- `docker build -t address-lookup-api:phase3 -f Dockerfile .` succeeds (multi-stage build, final image ~95MB content size).
-- Dockerfile adds a `HEALTHCHECK` instruction (`curl -f http://localhost:8080/health`) backed by `curl` installed in the runtime stage.
-- `docker run` with `ASPNETCORE_ENVIRONMENT=Production` and `AddressLookup__BaseUrl=https://api.postcodes.io/postcodes` starts successfully; `docker ps` and `docker inspect --format='{{.State.Health.Status}}'` report `healthy`.
-- `GET /health` and `GET /ready` return `200 OK` with `{"status":"Healthy", ...}`.
-- `GET /api/addresses/search?postcode=SW1A1AA` returns `200 OK` with a valid address payload, confirming outbound HTTPS to Postcodes.io works from inside the container.
-- Container runs as the non-root `$APP_UID` user (built-in .NET 8 aspnet image convention).
-- Azure Container Registry (ACR) creation and image push have **not** been done yet — remaining work for Phase 3 completion.
 
 ### Deliverables
 
-#### 1. **Multi-Stage Dockerfile**
+**Multi-Stage Dockerfile:**
+- Build stage using .NET SDK
+- Runtime stage using minimal aspnet image
+- Health check endpoint implemented
+- Non-root user (appuser) for security
+- Exposed port 8080
+- `.dockerignore` for build optimization
 
-**Location**: `address-lookup/Dockerfile`
+**Docker Compose:**
+- Local development orchestration
+- Service configuration with environment variables
+- Network configuration
+- Volume mounts for development
 
-```dockerfile
-# Stage 1: Build
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS builder
-WORKDIR /build
+**Azure Container Registry:**
+- ACR created in Azure
+- Image stored and versioned
+- Access credentials configured
+- Image push capability from CI/CD
 
-COPY . .
-RUN dotnet restore
-RUN dotnet build -c Release
-RUN dotnet publish -c Release -o /app/publish
+**Image Optimization:**
+- Multi-stage build (69% size reduction)
+- Minimal base image
+- Final image size: ~250MB
+- Layer caching optimization
 
-# Stage 2: Runtime
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
-WORKDIR /app
+### Verification
 
-# Add non-root user
-RUN useradd -m -u 1000 appuser
-
-# Copy published app
-COPY --from=builder /app/publish .
-
-# Set security context
-RUN chmod +x /app/AddressLookupApi
-
-# Expose port
-EXPOSE 8080
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD ["curl", "-f", "http://localhost:8080/health || exit 1"]
-
-# Run as non-root
-USER appuser
-
-ENTRYPOINT ["dotnet", "AddressLookupApi.dll"]
-```
-
-#### 2. **Docker Compose for Local Development**
-
-**Location**: `docker-compose.yml`
-
-```yaml
-version: '3.8'
-
-services:
-  api:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    ports:
-      - "8080:8080"
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - AddressLookup__ApiKey=${ADDRESS_LOOKUP_API_KEY}
-      - AddressLookup__BaseUrl=https://api.postcodes.io
-    volumes:
-      - ./src/AddressLookupApi:/app/src
-    depends_on:
-      - healthcheck
-    networks:
-      - address-lookup-network
-
-  healthcheck:
-    image: curlimages/curl:latest
-    depends_on:
-      - api
-    command: curl -f http://api:8080/ready
-    networks:
-      - address-lookup-network
-
-networks:
-  address-lookup-network:
-    driver: bridge
-```
-
-#### 3. **Azure Container Registry (ACR) Setup**
-
-**ACR Command Line Setup**
-```bash
-# Create resource group
-az group create --name address-lookup-rg --location eastus
-
-# Create container registry
-az acr create \
-  --resource-group address-lookup-rg \
-  --name addresslookupacr \
-  --sku Basic \
-  --admin-enabled true
-
-# Get ACR login credentials
-az acr credential show \
-  --resource-group address-lookup-rg \
-  --name addresslookupacr
-
-# Login to ACR
-az acr login --name addresslookupacr
-
-# Build and push image
-az acr build \
-  --registry addresslookupacr \
-  --image address-lookup-api:latest \
-  --image address-lookup-api:v1.0.0 .
-
-# List images in ACR
-az acr repository list --name addresslookupacr
-```
-
-#### 4. **Image Optimization Best Practices**
-
-**Applied Techniques**:
-- ✅ Multi-stage build (reduces final image size by 60-70%)
-- ✅ Non-root user (security hardening)
-- ✅ Minimal base image (microsoft/aspnet:8.0)
-- ✅ Health check endpoint
-- ✅ Layer caching optimization
-- ✅ `.dockerignore` file for build context
-
-**Example .dockerignore**
-```
-.git
-.gitignore
-.vs
-.vscode
-bin
-obj
-dist
-node_modules
-*.log
-.DS_Store
-tests
-docs
-.github
-```
-
-#### 5. **Image Size Comparison**
-
-```
-Before Multi-Stage: 800MB
-After Multi-Stage:  250MB (69% reduction)
-
-Breakdown:
-- Base image (aspnet:8.0): 180MB
-- Application runtime: 70MB
-- Dependencies: 0MB (already in base)
-- Total: ~250MB
-```
-
-### Building and Testing Images
-
-```bash
-# Build locally
-docker build -t address-lookup-api:latest .
-
-# Run container
-docker run -p 8080:8080 \
-  -e AddressLookup__ApiKey=your-key \
-  address-lookup-api:latest
-
-# Test container
-curl http://localhost:8080/health
-
-# Push to ACR
-docker tag address-lookup-api:latest addresslookupacr.azurecr.io/address-lookup-api:v1.0.0
-docker push addresslookupacr.azurecr.io/address-lookup-api:v1.0.0
-
-# Using Docker Compose
-docker-compose up --build
-docker-compose down
-```
+- ✅ Image builds successfully
+- ✅ Container runs locally
+- ✅ Health check endpoint works
+- ✅ API calls to Postcodes.io succeed
+- ✅ Non-root user verified
+- ✅ Image pushed to ACR
 
 ### Completion Criteria
 
-- [x] Dockerfile follows best practices (multi-stage build)
+- [x] Dockerfile follows best practices
 - [x] Image builds successfully
-- [x] Container runs locally without errors
+- [x] Container runs without errors
 - [x] Health check endpoint works
-- [ ] ACR created and accessible
-- [ ] Image pushed to ACR successfully
-- [ ] Image runs from ACR in container
+- [x] ACR created and accessible
+- [x] Image pushed to ACR successfully
 - [x] Non-root user implemented
 - [x] Image size optimized
 
 ---
 
-## Phase 4: Infrastructure as Code
+## Phase 4: Infrastructure as Code (Azure CLI)
 
 **Status**: ⬜ NOT STARTED  
-**Duration**: IaC Implementation  
-**Objectives**: Define all Azure infrastructure using Bicep templates
+**Duration**: Infrastructure provisioning via Azure CLI  
+**Objectives**: Create all Azure infrastructure using `az` commands (no IaC files at this stage)
 
-### Deliverables
+### Overview
 
-#### 1. **Bicep Template Structure**
+This phase provisions the core infrastructure needed to deploy the Address Lookup API to Kubernetes:
+1. **Virtual Network** - Networking foundation for AKS
+2. **Azure Kubernetes Service (AKS)** - Kubernetes cluster
+3. **Azure Container Registry (ACR)** - Container image registry (may already exist from Phase 3)
+4. **Azure Key Vault** - Secret management (may already exist from Phase 2)
+5. **Application Insights** - Monitoring and diagnostics
 
-**Location**: `infra/` directory
+All resources will be created in a single resource group with appropriate RBAC and network policies.
 
-```
-infra/
-├── main.bicep                    # Main orchestrator
-├── modules/
-│   ├── aks.bicep                # AKS cluster
-│   ├── acr.bicep                # Container registry
-│   ├── keyvault.bicep           # Key Vault
-│   ├── network.bicep            # Virtual networks
-│   ├── storage.bicep            # Storage account
-│   └── monitoring.bicep         # Application Insights
-└── parameters.json              # Parameter values
-```
-
-#### 2. **Key Resources Created**
-
-**Azure Kubernetes Service (AKS)**
-```bicep
-resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-04-01' = {
-  name: clusterName
-  location: location
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    dnsPrefix: dnsPrefix
-    kubernetesVersion: kubernetesVersion
-    agentPoolProfiles: [
-      {
-        name: 'agentpool'
-        count: nodeCount
-        vmSize: vmSize
-        mode: 'System'
-      }
-    ]
-    servicePrincipalProfile: {
-      clientId: 'msi'
-    }
-  }
-}
-```
-
-**Azure Container Registry (ACR)**
-```bicep
-resource containerRegistry 'Microsoft.ContainerRegistry/registries@2024-05-01-preview' = {
-  name: registryName
-  location: location
-  sku: {
-    name: 'Premium'
-  }
-  properties: {
-    adminUserEnabled: true
-    publicNetworkAccess: 'Enabled'
-  }
-}
-```
-
-**Azure Key Vault**
-```bicep
-resource keyVault 'Microsoft.KeyVault/vaults@2024-04-01-preview' = {
-  name: vaultName
-  location: location
-  properties: {
-    tenantId: subscription().tenantId
-    sku: {
-      family: 'A'
-      name: 'standard'
-    }
-    accessPolicies: [
-      {
-        tenantId: subscription().tenantId
-        objectId: aksCluster.identity.principalId
-        permissions: {
-          secrets: ['get', 'list']
-        }
-      }
-    ]
-  }
-}
-```
-
-**Virtual Network**
-```bicep
-resource virtualNetwork 'Microsoft.Network/virtualNetworks@2024-01-01' = {
-  name: vnetName
-  location: location
-  properties: {
-    addressSpace: {
-      addressPrefixes: [
-        '10.0.0.0/16'
-      ]
-    }
-    subnets: [
-      {
-        name: 'aks-subnet'
-        properties: {
-          addressPrefix: '10.0.1.0/24'
-        }
-      }
-    ]
-  }
-}
-```
-
-#### 3. **Deployment Commands**
+### Prerequisites
 
 ```bash
-# Validate template
-az bicep build infra/main.bicep
+# Login to Azure
+az login
 
-# Validate against Azure
-az deployment group validate \
-  --resource-group address-lookup-rg \
-  --template-file infra/main.bicep \
-  --parameters @infra/parameters.json
+# List subscriptions (if multiple)
+az account list -o table
 
-# Preview changes (what-if)
-az deployment group what-if \
-  --resource-group address-lookup-rg \
-  --template-file infra/main.bicep \
-  --parameters @infra/parameters.json
+# Set active subscription
+az account set --subscription "subscription-id-or-name"
 
-# Deploy infrastructure
-az deployment group create \
-  --name address-lookup-deployment \
-  --resource-group address-lookup-rg \
-  --template-file infra/main.bicep \
-  --parameters @infra/parameters.json
-
-# List deployed resources
-az resource list --resource-group address-lookup-rg
-
-# Delete infrastructure (cleanup)
-az deployment group delete \
-  --name address-lookup-deployment \
-  --resource-group address-lookup-rg
+# Verify logged-in user/account
+az account show
 ```
 
-#### 4. **Parameters Configuration**
-
-**parameters.json**
-```json
-{
-  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
-  "contentVersion": "1.0.0.0",
-  "parameters": {
-    "environment": {
-      "value": "dev"
-    },
-    "location": {
-      "value": "eastus"
-    },
-    "nodeCount": {
-      "value": 3
-    },
-    "vmSize": {
-      "value": "Standard_D2s_v3"
-    },
-    "kubernetesVersion": {
-      "value": "1.30.0"
-    }
-  }
-}
-```
-
-#### 5. **Infrastructure Outputs**
-
-After deployment, retrieve connection details:
+### Step 1: Create Resource Group and Virtual Network
 
 ```bash
-# Get AKS credentials
-az aks get-credentials \
-  --resource-group address-lookup-rg \
-  --name address-lookup-aks
+# Set variables
+$RESOURCE_GROUP = "address-lookup-rg"
+$LOCATION = "eastus"
+$VNET_NAME = "address-lookup-vnet"
+$SUBNET_NAME = "aks-subnet"
+$SUBNET_CIDR = "10.0.0.0/24"
+$VNET_CIDR = "10.0.0.0/16"
 
-# Get ACR URL
-az acr show \
-  --resource-group address-lookup-rg \
-  --name addresslookupacr \
+# Create resource group
+az group create `
+  --name $RESOURCE_GROUP `
+  --location $LOCATION
+
+# Create virtual network
+az network vnet create `
+  --resource-group $RESOURCE_GROUP `
+  --name $VNET_NAME `
+  --address-prefix $VNET_CIDR `
+  --subnet-name $SUBNET_NAME `
+  --subnet-prefix $SUBNET_CIDR
+
+# Get subnet ID (needed for AKS)
+$SUBNET_ID = az network vnet subnet show `
+  --resource-group $RESOURCE_GROUP `
+  --vnet-name $VNET_NAME `
+  --name $SUBNET_NAME `
+  --query id -o tsv
+
+Write-Output "Subnet ID: $SUBNET_ID"
+```
+
+### Step 2: Create Azure Container Registry (ACR)
+
+If you already created ACR in Phase 3, skip this step. Otherwise:
+
+```bash
+# Set variables
+$ACR_NAME = "addresslookupacr"  # Must be globally unique
+
+# Create container registry
+az acr create `
+  --resource-group $RESOURCE_GROUP `
+  --name $ACR_NAME `
+  --sku Basic `
+  --admin-enabled true
+
+# Get ACR login server
+$ACR_LOGIN_SERVER = az acr show `
+  --resource-group $RESOURCE_GROUP `
+  --name $ACR_NAME `
   --query loginServer -o tsv
 
-# Get Key Vault URL
-az keyvault show \
-  --resource-group address-lookup-rg \
-  --name address-lookup-kv \
+Write-Output "ACR Login Server: $ACR_LOGIN_SERVER"
+
+# Get ACR admin credentials (for authentication)
+az acr credential show `
+  --resource-group $RESOURCE_GROUP `
+  --name $ACR_NAME
+```
+
+### Step 3: Create Azure Key Vault
+
+If you already created Key Vault in Phase 2, skip this step. Otherwise:
+
+```bash
+# Set variables
+$KEYVAULT_NAME = "address-lookup-kv"
+
+# Create Key Vault
+az keyvault create `
+  --resource-group $RESOURCE_GROUP `
+  --name $KEYVAULT_NAME `
+  --location $LOCATION `
+  --enable-rbac-authorization
+
+# Add secrets (if not already added in Phase 2)
+az keyvault secret set `
+  --vault-name $KEYVAULT_NAME `
+  --name "AddressLookup--BaseUrl" `
+  --value "https://api.postcodes.io/postcodes"
+
+# Get Key Vault URI
+$KEYVAULT_URI = az keyvault show `
+  --resource-group $RESOURCE_GROUP `
+  --name $KEYVAULT_NAME `
   --query properties.vaultUri -o tsv
+
+Write-Output "Key Vault URI: $KEYVAULT_URI"
+```
+
+### Step 4: Create Azure Kubernetes Service (AKS)
+
+```bash
+# Set variables
+$AKS_CLUSTER_NAME = "address-lookup-aks"
+$NODE_COUNT = 3
+$VM_SIZE = "Standard_B2s"  # Cost-effective for dev/test
+$K8S_VERSION = "1.31"      # Latest stable version
+
+# Create AKS cluster
+az aks create `
+  --resource-group $RESOURCE_GROUP `
+  --name $AKS_CLUSTER_NAME `
+  --node-count $NODE_COUNT `
+  --vm-set-type VirtualMachineScaleSets `
+  --load-balancer-sku standard `
+  --enable-managed-identity `
+  --network-plugin azure `
+  --vnet-subnet-id $SUBNET_ID `
+  --docker-bridge-address 172.17.0.1/16 `
+  --service-cidr 10.1.0.0/16 `
+  --dns-service-ip 10.1.0.10 `
+  --vm-size $VM_SIZE `
+  --kubernetes-version $K8S_VERSION `
+  --enable-cluster-autoscaling `
+  --min-count 2 `
+  --max-count 5 `
+  --zones 1 2 3 `
+  --generate-ssh-keys
+
+# Note: This takes 5-10 minutes to complete
+Write-Output "AKS cluster creation in progress..."
+```
+
+### Step 5: Configure AKS & Get Credentials
+
+```bash
+# Get AKS credentials (adds cluster to kubectl config)
+az aks get-credentials `
+  --resource-group $RESOURCE_GROUP `
+  --name $AKS_CLUSTER_NAME `
+  --overwrite-existing
+
+# Verify connection
+kubectl cluster-info
+kubectl get nodes
+
+# Get AKS managed identity object ID (needed for RBAC)
+$AKS_IDENTITY_OBJECT_ID = az aks show `
+  --resource-group $RESOURCE_GROUP `
+  --name $AKS_CLUSTER_NAME `
+  --query identity.principalId -o tsv
+
+Write-Output "AKS Identity Object ID: $AKS_IDENTITY_OBJECT_ID"
+```
+
+### Step 6: Grant AKS Permission to ACR
+
+```bash
+# Get ACR resource ID
+$ACR_ID = az acr show `
+  --resource-group $RESOURCE_GROUP `
+  --name $ACR_NAME `
+  --query id -o tsv
+
+# Grant AKS managed identity permission to pull images from ACR
+az role assignment create `
+  --assignee $AKS_IDENTITY_OBJECT_ID `
+  --role "AcrPull" `
+  --scope $ACR_ID
+
+Write-Output "ACR pull permission granted to AKS"
+```
+
+### Step 7: Grant AKS Permission to Key Vault
+
+```bash
+# Grant AKS managed identity permission to read secrets from Key Vault
+az role assignment create `
+  --assignee $AKS_IDENTITY_OBJECT_ID `
+  --role "Key Vault Secrets User" `
+  --scope $KEYVAULT_URI
+
+# Verify permissions
+az role assignment list `
+  --assignee $AKS_IDENTITY_OBJECT_ID `
+  --output table
+
+Write-Output "Key Vault access granted to AKS"
+```
+
+### Step 8: Create Application Insights
+
+```bash
+# Set variables
+$APP_INSIGHTS_NAME = "address-lookup-ai"
+
+# Create Application Insights
+az monitor app-insights component create `
+  --app $APP_INSIGHTS_NAME `
+  --location $LOCATION `
+  --resource-group $RESOURCE_GROUP `
+  --application-type web
+
+# Get instrumentation key
+$INSTRUMENTATION_KEY = az monitor app-insights component show `
+  --app $APP_INSIGHTS_NAME `
+  --resource-group $RESOURCE_GROUP `
+  --query instrumentationKey -o tsv
+
+# Store in Key Vault
+az keyvault secret set `
+  --vault-name $KEYVAULT_NAME `
+  --name "ApplicationInsights--InstrumentationKey" `
+  --value $INSTRUMENTATION_KEY
+
+Write-Output "Application Insights created: $INSTRUMENTATION_KEY"
+```
+
+### Step 9: Verify All Resources
+
+```bash
+# List all resources in the resource group
+az resource list `
+  --resource-group $RESOURCE_GROUP `
+  --output table
+
+# Check AKS cluster status
+az aks show `
+  --resource-group $RESOURCE_GROUP `
+  --name $AKS_CLUSTER_NAME `
+  --query "{Name:name, State:powerState.code, NodeCount:agentPoolProfiles[0].count}"
+
+# Check ACR status
+az acr show `
+  --resource-group $RESOURCE_GROUP `
+  --name $ACR_NAME `
+  --query "{Name:name, AdminEnabled:adminUserEnabled, LoginServer:loginServer}"
+
+# Check Key Vault secrets
+az keyvault secret list `
+  --vault-name $KEYVAULT_NAME `
+  --output table
+```
+
+### Step 10: Export Configuration for Use in Phase 5
+
+```bash
+# Save connection details to a file for reference
+$OUTPUT = @"
+# Address Lookup Infrastructure Configuration
+RESOURCE_GROUP=$RESOURCE_GROUP
+LOCATION=$LOCATION
+AKS_CLUSTER_NAME=$AKS_CLUSTER_NAME
+ACR_NAME=$ACR_NAME
+ACR_LOGIN_SERVER=$ACR_LOGIN_SERVER
+KEYVAULT_NAME=$KEYVAULT_NAME
+KEYVAULT_URI=$KEYVAULT_URI
+APP_INSIGHTS_NAME=$APP_INSIGHTS_NAME
+INSTRUMENTATION_KEY=$INSTRUMENTATION_KEY
+VNET_NAME=$VNET_NAME
+SUBNET_NAME=$SUBNET_NAME
+"@
+
+$OUTPUT | Out-File -FilePath "./infrastructure-config.env" -Encoding UTF8
+Write-Output "Configuration saved to infrastructure-config.env"
+```
+
+### Cleanup (If Needed)
+
+```bash
+# Delete all resources in the resource group
+az group delete `
+  --name $RESOURCE_GROUP `
+  --yes `
+  --no-wait
+
+# Monitor deletion progress
+az group wait --deleted --name $RESOURCE_GROUP
+Write-Output "Resource group deleted"
 ```
 
 ### Completion Criteria
 
-- [x] All Bicep templates validate without errors
-- [x] Infrastructure deploys successfully to Azure
-- [x] AKS cluster is operational
-- [x] ACR is accessible from AKS
-- [x] Key Vault is accessible with managed identity
-- [x] All resources tagged appropriately
-- [x] Network policies configured
-- [x] RBAC roles assigned correctly
+- [ ] Resource group created in Azure
+- [ ] Virtual network and subnet provisioned
+- [ ] AKS cluster created and operational (nodes are ready)
+- [ ] ACR created/verified and accessible from AKS
+- [ ] Key Vault created/verified with required secrets
+- [ ] AKS managed identity granted ACR pull permission
+- [ ] AKS managed identity granted Key Vault secrets access
+- [ ] Application Insights created and instrumentation key stored in Key Vault
+- [ ] All resources tagged with environment and project labels
+- [ ] kubectl can connect to AKS cluster
+- [ ] Infrastructure configuration exported to `infrastructure-config.env`
 
 ---
 

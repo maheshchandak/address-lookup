@@ -20,6 +20,7 @@ public class AddressService : IAddressService
         _logger = logger;
         _baseUrl = configuration["AddressLookup:BaseUrl"]?.TrimEnd('/')
             ?? throw new InvalidOperationException("AddressLookup:BaseUrl is not configured.");
+        _logger.LogInformation("AddressService initialized with BaseUrl: {BaseUrl}", _baseUrl);
     }
 
     /// <inheritdoc/>
@@ -37,10 +38,14 @@ public class AddressService : IAddressService
         try
         {
             var url = $"{_baseUrl}/{normalizedPostcode}";
+            _logger.LogInformation("Making request to: {Url}", url);
             var response = await _httpClient.GetAsync(url, cancellationToken);
+
+            _logger.LogInformation("Received response with status code: {StatusCode}", response.StatusCode);
 
             if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             {
+                _logger.LogInformation("Postcode not found (404)");
                 return new AddressSearchResponse
                 {
                     SearchPostcode = normalizedPostcode,
@@ -52,6 +57,8 @@ public class AddressService : IAddressService
 
             var payload = await response.Content.ReadFromJsonAsync<PostcodesIoResponse>(cancellationToken)
                 ?? new PostcodesIoResponse();
+
+            _logger.LogInformation("Deserialized payload. Result is null: {ResultIsNull}", payload.Result == null);
 
             var result = payload.Result;
             var address = result is null
