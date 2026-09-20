@@ -55,8 +55,8 @@ jobs:
       - name: Extract image tag
         id: image
         run: |
-          # Use commit SHA as tag
-          TAG=sha-$(git rev-parse --short HEAD)
+          # Use latest tag (pushed by build workflow)
+          TAG="latest"
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$TAG" >> $GITHUB_OUTPUT
 
