@@ -332,7 +332,7 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-01-01' = {
 // Grant AKS managed identity access to ACR
 resource aksAcrRoleAssignment 'Microsoft.Authorization/roleAssignments@2023-04-01-preview' = {
   scope: acr
-  name: guid(acr.id, aksCluster.identity.principalId, 'AcrPull')
+  name: guid(acr.id, aksCluster.id, 'AcrPull')
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-338473d6067b') // AcrPull role
     principalId: aksCluster.identity.principalId
