@@ -16,12 +16,6 @@ param nodeCount int = 1
 @description('AKS VM size')
 param vmSize string = 'Standard_D2s_v3'
 
-@description('GitHub federated credential subject claim (e.g., repo:owner@userid/repo@repoid:ref:refs/heads/master)')
-param githubFederatedSubject string = ''
-
-@description('Enable GitHub Actions OIDC federated credential')
-param enableGitHubFederated bool = false
-
 // Variables
 var resourceGroupName = 'rg-${projectName}'
 var acrName = replace('acr${projectName}', '-', '')
@@ -73,35 +67,11 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
   }
 }
 
-// Managed Identity for GitHub Actions and AKS pods
+// Managed Identity for AKS pods (workload identity)
 resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: managedIdentityName
   location: location
   tags: tags
-}
-
-// GitHub Actions OIDC Federated Credential (optional)
-resource gitHubFederatedCredential 'Microsoft.ManagedIdentity/userAssignedIdentities/federatedIdentityCredentials@2023-01-31' = if (enableGitHubFederated && !empty(githubFederatedSubject)) {
-  name: 'github-actions-oidc'
-  parent: managedIdentity
-  properties: {
-    issuer: 'https://token.actions.githubusercontent.com'
-    subject: githubFederatedSubject
-    audiences: [
-      'api://AzureADTokenExchange'
-    ]
-  }
-}
-
-// Contributor role assignment for managed identity (at subscription scope)
-resource contributorRoleAssignment 'Microsoft.Authorization/roleAssignments@2023-04-01-preview' = if (enableGitHubFederated) {
-  scope: subscription()
-  name: guid(subscription().id, managedIdentity.id, 'Contributor')
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'b24988ac-6180-42a0-ab88-20f7382dd24c') // Contributor role
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
 }
 
 // Network Security Group for AKS subnet

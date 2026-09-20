@@ -124,8 +124,6 @@ jobs:
               location="${{ github.event.inputs.region }}" \
               environment="${{ github.event.inputs.environment }}" \
               nodeCount=${{ github.event.inputs.nodeCount }} \
-              enableGitHubFederated=true \
-              githubFederatedSubject="repo:maheshchandak@50156171/address-lookup@1375897209:ref:refs/heads/master" \
             --query properties.outputs \
             --output json)
           
