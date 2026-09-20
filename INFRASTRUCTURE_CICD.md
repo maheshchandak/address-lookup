@@ -596,6 +596,29 @@ Both are deleted when you run the teardown workflow.
 - **Service CIDR**: `10.1.0.0/16`
 - **Pod Subnet**: `10.0.1.0/24`
 
+### Network Security
+**Network Security Groups (NSGs) - Automatically Created**
+
+NSG traffic rules are **automatically provisioned** via Bicep when infrastructure is deployed:
+
+**AKS Subnet NSG (`nsg-aks-*`):**
+- ✅ Allow HTTP (port 80) from any source → Any destination
+- ✅ Allow HTTPS (port 443) from any source → Any destination  
+- ✅ Allow Kubelet API (port 10250) between subnets
+- ✅ Service endpoints enabled for ACR, Key Vault, Storage
+
+**VM Subnet NSG (`nsg-vm-*`):**
+- ✅ Allow HTTP (port 80) from any source → Any destination
+- ✅ Allow HTTPS (port 443) from any source → Any destination
+
+**Why This Matters:**
+- **Before**: LoadBalancer external IP was unreachable due to default DenyAllInbound rule
+- **After**: NSG rules are automatically configured so LoadBalancer works immediately after deployment
+- **No Manual Steps**: You don't need to manually create NSG rules anymore
+- **Automatic Deletion**: NSG rules are deleted when you tear down infrastructure
+
+**Note**: These rules are defined in `infra/main.bicep` and applied automatically by the provisioning workflow.
+
 ### Azure Container Registry
 - **Name**: `addresslookupacr`
 - **Tier**: Basic

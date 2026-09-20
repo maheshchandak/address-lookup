@@ -25,6 +25,8 @@ var vnetName = 'vnet-${projectName}'
 var managedIdentityName = 'uami-${projectName}'
 var appInsightsName = 'appi-${projectName}'
 var workspaceName = 'law-${projectName}'
+var aksNsgName = 'nsg-aks-${projectName}'
+var vmNsgName = 'nsg-vm-${projectName}'
 
 // VNet configuration
 var vnetAddressPrefix = '10.0.0.0/16'
@@ -72,6 +74,93 @@ resource managedIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-
   tags: tags
 }
 
+// Network Security Group for AKS subnet
+resource aksNsg 'Microsoft.Network/networkSecurityGroups@2023-09-01' = {
+  name: aksNsgName
+  location: location
+  tags: tags
+  properties: {
+    securityRules: [
+      {
+        name: 'AllowHTTP'
+        properties: {
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '80'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+          access: 'Allow'
+          priority: 100
+          direction: 'Inbound'
+        }
+      }
+      {
+        name: 'AllowHTTPS'
+        properties: {
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '443'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+          access: 'Allow'
+          priority: 110
+          direction: 'Inbound'
+        }
+      }
+      {
+        name: 'AllowKubeletAPI'
+        properties: {
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '10250'
+          sourceAddressPrefix: 'VirtualNetwork'
+          destinationAddressPrefix: 'VirtualNetwork'
+          access: 'Allow'
+          priority: 120
+          direction: 'Inbound'
+        }
+      }
+    ]
+  }
+}
+
+// Network Security Group for VM subnet
+resource vmNsg 'Microsoft.Network/networkSecurityGroups@2023-09-01' = {
+  name: vmNsgName
+  location: location
+  tags: tags
+  properties: {
+    securityRules: [
+      {
+        name: 'AllowHTTP'
+        properties: {
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '80'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+          access: 'Allow'
+          priority: 100
+          direction: 'Inbound'
+        }
+      }
+      {
+        name: 'AllowHTTPS'
+        properties: {
+          protocol: 'Tcp'
+          sourcePortRange: '*'
+          destinationPortRange: '443'
+          sourceAddressPrefix: '*'
+          destinationAddressPrefix: '*'
+          access: 'Allow'
+          priority: 110
+          direction: 'Inbound'
+        }
+      }
+    ]
+  }
+}
+
 // Virtual Network
 resource vnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
   name: vnetName
@@ -88,6 +177,9 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
         name: 'aks-subnet'
         properties: {
           addressPrefix: aksSubnetPrefix
+          networkSecurityGroup: {
+            id: aksNsg.id
+          }
           serviceEndpoints: [
             {
               service: 'Microsoft.ContainerRegistry'
@@ -105,6 +197,9 @@ resource vnet 'Microsoft.Network/virtualNetworks@2023-09-01' = {
         name: 'vm-subnet'
         properties: {
           addressPrefix: vmSubnetPrefix
+          networkSecurityGroup: {
+            id: vmNsg.id
+          }
         }
       }
     ]
