@@ -3,7 +3,7 @@ name: Deploy to AKS
 on:
   workflow_run:
     workflows: ["Build & Test"]
-    branches: [main, master]
+    branches: [master]
     types:
       - completed
   workflow_dispatch:
