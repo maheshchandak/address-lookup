@@ -279,7 +279,7 @@ resource acrRoleAssignment 'Microsoft.Authorization/roleAssignments@2023-04-01-p
 }
 
 // AKS Cluster
-resource aksCluster 'Microsoft.ContainerService/managedClusters@2023-10-02-preview' = {
+resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-01-01' = {
   name: aksClusterName
   location: location
   tags: tags
@@ -303,6 +303,11 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2023-10-02-previ
     ]
     servicePrincipalProfile: {
       clientId: 'msi'
+    }
+    securityProfile: {
+      workloadIdentity: {
+        enabled: true
+      }
     }
     networkProfile: {
       networkPlugin: 'azure'
