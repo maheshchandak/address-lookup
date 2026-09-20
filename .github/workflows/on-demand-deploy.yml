@@ -1,0 +1,346 @@
+name: 'On-Demand: Provision & Deploy'
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment (dev, staging, prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      region:
+        description: 'Azure region'
+        required: true
+        default: 'uksouth'
+        type: string
+      nodeCount:
+        description: 'AKS node count'
+        required: true
+        default: '1'
+        type: string
+      skipInfra:
+        description: 'Skip infrastructure provisioning (use existing)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  BICEP_FILE: infra/main.bicep
+  BICEP_PARAM_FILE: infra/main.bicepparam
+  RESOURCE_GROUP: 'rg-address-lookup'
+  CLUSTER_NAME: 'aks-address-lookup'
+  REGISTRY: 'addresslookupacr.azurecr.io'
+  IMAGE_NAME: 'address-lookup-api'
+  NAMESPACE: 'default'
+
+permissions:
+  id-token: write
+  contents: read
+  checks: write
+  pull-requests: write
+
+jobs:
+  check-infrastructure:
+    runs-on: ubuntu-latest
+    outputs:
+      infraExists: ${{ steps.check.outputs.exists }}
+      aksClusterName: ${{ steps.check.outputs.aksClusterName }}
+      acrLoginServer: ${{ steps.check.outputs.acrLoginServer }}
+    
+    steps:
+      - name: Azure Login (Federated Credentials)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          auth-type: OIDC
+
+      - name: Check Infrastructure Status
+        id: check
+        run: |
+          if az group exists --name "${{ env.RESOURCE_GROUP }}" | grep -q true; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Infrastructure exists"
+            
+            # Get AKS cluster name
+            AKS_CLUSTER=$(az aks list \
+              --resource-group "${{ env.RESOURCE_GROUP }}" \
+              --query "[0].name" \
+              --output tsv 2>/dev/null || echo "${{ env.CLUSTER_NAME }}")
+            
+            # Get ACR server
+            ACR_SERVER=$(az acr list \
+              --resource-group "${{ env.RESOURCE_GROUP }}" \
+              --query "[0].loginServer" \
+              --output tsv 2>/dev/null || echo "${{ env.REGISTRY }}")
+            
+            echo "aksClusterName=$AKS_CLUSTER" >> $GITHUB_OUTPUT
+            echo "acrLoginServer=$ACR_SERVER" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Infrastructure does not exist - will provision"
+          fi
+
+  provision-infrastructure:
+    needs: check-infrastructure
+    if: ${{ needs.check-infrastructure.outputs.infraExists == 'false' && github.event.inputs.skipInfra != 'true' }}
+    runs-on: ubuntu-latest
+    outputs:
+      aksClusterName: ${{ steps.provision.outputs.aksClusterName }}
+      acrLoginServer: ${{ steps.provision.outputs.acrLoginServer }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login (Federated Credentials)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          auth-type: OIDC
+
+      - name: Create Resource Group
+        run: |
+          az group create \
+            --name "${{ env.RESOURCE_GROUP }}" \
+            --location "${{ github.event.inputs.region }}" \
+            --tags environment=${{ github.event.inputs.environment }} \
+              createdBy="GitHub Actions" \
+              workflow="On-Demand Deploy"
+
+      - name: Deploy Infrastructure
+        id: provision
+        run: |
+          DEPLOYMENT_OUTPUT=$(az deployment group create \
+            --name "deployment-$(date +%s)" \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --template-file "${{ env.BICEP_FILE }}" \
+            --parameters \
+              location="${{ github.event.inputs.region }}" \
+              environment="${{ github.event.inputs.environment }}" \
+              nodeCount=${{ github.event.inputs.nodeCount }} \
+            --query properties.outputs \
+            --output json)
+          
+          AKS_CLUSTER=$(echo "$DEPLOYMENT_OUTPUT" | jq -r '.aksClusterName.value')
+          ACR_LOGIN=$(echo "$DEPLOYMENT_OUTPUT" | jq -r '.acrLoginServer.value')
+          
+          echo "aksClusterName=$AKS_CLUSTER" >> $GITHUB_OUTPUT
+          echo "acrLoginServer=$ACR_LOGIN" >> $GITHUB_OUTPUT
+          
+          echo "✅ Infrastructure deployed"
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ steps.provision.outputs.aksClusterName }}" \
+            --overwrite-existing
+
+      - name: Create ACR Secret in Kubernetes
+        run: |
+          ACR_NAME="${{ steps.provision.outputs.acrLoginServer }}"
+          ACR_USERNAME=$(az acr credential show \
+            --name "${ACR_NAME%%.azurecr.io}" \
+            --query username \
+            --output tsv)
+          ACR_PASSWORD=$(az acr credential show \
+            --name "${ACR_NAME%%.azurecr.io}" \
+            --query passwords[0].value \
+            --output tsv)
+          
+          kubectl create secret docker-registry acr-secret \
+            --docker-server="$ACR_NAME" \
+            --docker-username="$ACR_USERNAME" \
+            --docker-password="$ACR_PASSWORD" \
+            --docker-email="ci@github.com" \
+            --namespace=default \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+  build-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test --configuration Release --no-build --logger "trx;LogFileName=test-results.trx" --verbosity normal
+
+      - name: Publish test results
+        uses: EnricoMi/publish-unit-test-result-action@v2
+        if: always()
+        with:
+          trx_files: '**/test-results.trx'
+          check_name: 'Test Results'
+
+  build-image:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to ACR
+        run: |
+          az acr login --name addresslookupacr 2>/dev/null || \
+          docker login -u ${{ secrets.ACR_USERNAME }} -p ${{ secrets.ACR_PASSWORD }} addresslookupacr.azurecr.io
+
+      - name: Build and push Docker image
+        run: |
+          docker build -t addresslookupacr.azurecr.io/address-lookup-api:latest \
+            -t addresslookupacr.azurecr.io/address-lookup-api:${{ github.sha }} \
+            -f Dockerfile .
+          
+          docker push addresslookupacr.azurecr.io/address-lookup-api:latest
+          docker push addresslookupacr.azurecr.io/address-lookup-api:${{ github.sha }}
+          
+          echo "✅ Docker image pushed to ACR"
+
+  deploy-application:
+    needs: [check-infrastructure, provision-infrastructure, build-image]
+    if: always() && (needs.check-infrastructure.outputs.infraExists == 'true' || needs.provision-infrastructure.result == 'success')
+    runs-on: ubuntu-latest
+    
+    env:
+      AKS_CLUSTER: ${{ needs.check-infrastructure.outputs.aksClusterName || needs.provision-infrastructure.outputs.aksClusterName }}
+      ACR_SERVER: ${{ needs.check-infrastructure.outputs.acrLoginServer || needs.provision-infrastructure.outputs.acrLoginServer }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login (Federated Credentials)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          auth-type: OIDC
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --name "${{ env.AKS_CLUSTER }}" \
+            --overwrite-existing
+
+      - name: Deploy Kubernetes manifests
+        run: |
+          kubectl apply -f .github/kubernetes/deployment.yaml
+          echo "✅ Kubernetes manifests deployed"
+
+      - name: Update image in deployment
+        run: |
+          kubectl set image deployment/address-lookup-api \
+            address-lookup-api=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            --namespace=${{ env.NAMESPACE }} \
+            --record
+
+      - name: Wait for rollout
+        run: |
+          kubectl rollout status deployment/address-lookup-api \
+            --namespace=${{ env.NAMESPACE }} \
+            --timeout=5m
+
+      - name: Get LoadBalancer IP
+        id: service
+        run: |
+          kubectl get svc address-lookup-api \
+            --namespace=${{ env.NAMESPACE }} \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}' > /tmp/lb-ip.txt
+          
+          LB_IP=$(cat /tmp/lb-ip.txt)
+          echo "loadBalancerIp=$LB_IP" >> $GITHUB_OUTPUT
+          echo "✅ LoadBalancer IP: $LB_IP"
+
+      - name: Health check
+        run: |
+          LB_IP="${{ steps.service.outputs.loadBalancerIp }}"
+          RETRY_COUNT=0
+          MAX_RETRIES=60
+          RETRY_INTERVAL=5
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -sf "http://$LB_IP/health" > /dev/null 2>&1; then
+              echo "✅ Health check passed"
+              exit 0
+            fi
+            
+            RETRY_COUNT=$((RETRY_COUNT + 1))
+            echo "⏳ Health check attempt $RETRY_COUNT/$MAX_RETRIES..."
+            sleep $RETRY_INTERVAL
+          done
+          
+          echo "❌ Health check failed after $MAX_RETRIES attempts"
+          exit 1
+
+      - name: Smoke test
+        run: |
+          LB_IP="${{ steps.service.outputs.loadBalancerIp }}"
+          
+          RESPONSE=$(curl -s "http://$LB_IP/api/addresses/search?postcode=SW1A1AA")
+          COUNT=$(echo "$RESPONSE" | jq -r '.count // 0')
+          
+          if [ "$COUNT" -gt 0 ]; then
+            echo "✅ Smoke test passed - found $COUNT addresses"
+            exit 0
+          else
+            echo "❌ Smoke test failed - no addresses found"
+            exit 1
+          fi
+
+      - name: Deployment Summary
+        if: always()
+        run: |
+          echo "
+          ========================================
+          ✅ DEPLOYMENT SUCCESSFUL
+          ========================================
+          
+          Environment: ${{ github.event.inputs.environment }}
+          Region: ${{ github.event.inputs.region }}
+          AKS Cluster: ${{ env.AKS_CLUSTER }}
+          LoadBalancer IP: ${{ steps.service.outputs.loadBalancerIp }}
+          
+          Access API:
+          http://${{ steps.service.outputs.loadBalancerIp }}/api/addresses/search?postcode=SW1A1AA
+          
+          Next steps:
+          1. Test the API endpoint above
+          2. Review logs: kubectl logs -f deployment/address-lookup-api
+          3. To tear down: Run 'Teardown Infrastructure' workflow
+          
+          ========================================"
+
+      - name: Deployment Report
+        if: always()
+        run: |
+          echo "## ✅ On-Demand Deployment Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | ${{ github.event.inputs.region }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| AKS Cluster | ${{ env.AKS_CLUSTER }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| LoadBalancer IP | ${{ steps.service.outputs.loadBalancerIp }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| API Endpoint | http://${{ steps.service.outputs.loadBalancerIp }}/api/addresses/search?postcode=SW1A1AA |" >> $GITHUB_STEP_SUMMARY

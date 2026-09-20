@@ -1,0 +1,181 @@
+name: 'Provision Infrastructure'
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment (dev, staging, prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      region:
+        description: 'Azure region'
+        required: true
+        default: 'uksouth'
+        type: string
+      nodeCount:
+        description: 'AKS node count'
+        required: true
+        default: '1'
+        type: string
+
+env:
+  BICEP_FILE: infra/main.bicep
+  BICEP_PARAM_FILE: infra/main.bicepparam
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    outputs:
+      resourceGroupName: ${{ steps.provision.outputs.resourceGroupName }}
+      aksClusterName: ${{ steps.provision.outputs.aksClusterName }}
+      acrLoginServer: ${{ steps.provision.outputs.acrLoginServer }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login (Federated Credentials)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          auth-type: OIDC
+
+      - name: Create Resource Group
+        id: rg
+        run: |
+          RG_NAME="rg-address-lookup"
+          REGION="${{ github.event.inputs.region }}"
+          
+          az group create \
+            --name "$RG_NAME" \
+            --location "$REGION" \
+            --tags environment=${{ github.event.inputs.environment }} \
+              createdBy="GitHub Actions" \
+              createdDate="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          
+          echo "resourceGroupName=$RG_NAME" >> $GITHUB_OUTPUT
+          echo "✅ Resource group created: $RG_NAME"
+
+      - name: Validate Bicep
+        run: |
+          az bicep build --file "${{ env.BICEP_FILE }}"
+          echo "✅ Bicep validation passed"
+
+      - name: Deploy Infrastructure
+        id: provision
+        run: |
+          RG_NAME="${{ steps.rg.outputs.resourceGroupName }}"
+          
+          DEPLOYMENT_OUTPUT=$(az deployment group create \
+            --name "deployment-$(date +%s)" \
+            --resource-group "$RG_NAME" \
+            --template-file "${{ env.BICEP_FILE }}" \
+            --parameters \
+              location="${{ github.event.inputs.region }}" \
+              environment="${{ github.event.inputs.environment }}" \
+              nodeCount=${{ github.event.inputs.nodeCount }} \
+            --query properties.outputs \
+            --output json)
+          
+          echo "$DEPLOYMENT_OUTPUT" | jq .
+          
+          # Extract outputs
+          AKS_CLUSTER=$(echo "$DEPLOYMENT_OUTPUT" | jq -r '.aksClusterName.value')
+          ACR_LOGIN=$(echo "$DEPLOYMENT_OUTPUT" | jq -r '.acrLoginServer.value')
+          KUBE_VERSION=$(echo "$DEPLOYMENT_OUTPUT" | jq -r '.kubernetesVersion.value // "1.37.0"')
+          
+          echo "resourceGroupName=$RG_NAME" >> $GITHUB_OUTPUT
+          echo "aksClusterName=$AKS_CLUSTER" >> $GITHUB_OUTPUT
+          echo "acrLoginServer=$ACR_LOGIN" >> $GITHUB_OUTPUT
+          
+          echo "✅ Infrastructure deployed successfully"
+          echo "📦 AKS Cluster: $AKS_CLUSTER"
+          echo "📦 ACR Server: $ACR_LOGIN"
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group "${{ steps.rg.outputs.resourceGroupName }}" \
+            --name "${{ steps.provision.outputs.aksClusterName }}" \
+            --overwrite-existing
+
+      - name: Verify AKS Cluster
+        run: |
+          echo "🔍 Verifying AKS cluster..."
+          kubectl version --short
+          
+          echo "🔍 Checking node status..."
+          kubectl get nodes
+          
+          echo "✅ AKS cluster is ready"
+
+      - name: Create Kubernetes Secrets for ACR
+        run: |
+          ACR_NAME="${{ steps.provision.outputs.acrLoginServer }}"
+          ACR_USERNAME=$(az acr credential show \
+            --name "${ACR_NAME%%.azurecr.io}" \
+            --query username \
+            --output tsv)
+          ACR_PASSWORD=$(az acr credential show \
+            --name "${ACR_NAME%%.azurecr.io}" \
+            --query passwords[0].value \
+            --output tsv)
+          
+          kubectl create secret docker-registry acr-secret \
+            --docker-server="$ACR_NAME" \
+            --docker-username="$ACR_USERNAME" \
+            --docker-password="$ACR_PASSWORD" \
+            --docker-email="ci@github.com" \
+            --namespace=default \
+            --dry-run=client -o yaml | kubectl apply -f -
+          
+          echo "✅ ACR secret created in Kubernetes"
+
+      - name: Provision Summary
+        run: |
+          echo "
+          ========================================
+          ✅ INFRASTRUCTURE PROVISIONED
+          ========================================
+          
+          Resource Group: ${{ steps.rg.outputs.resourceGroupName }}
+          AKS Cluster: ${{ steps.provision.outputs.aksClusterName }}
+          ACR Server: ${{ steps.provision.outputs.acrLoginServer }}
+          Region: ${{ github.event.inputs.region }}
+          Environment: ${{ github.event.inputs.environment }}
+          Node Count: ${{ github.event.inputs.nodeCount }}
+          
+          Next steps:
+          1. Verify resources in Azure Portal
+          2. Deploy application using 'Deploy Application' workflow
+          
+          ========================================"
+
+  # Generate outputs for next workflow
+  output-summary:
+    needs: provision
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Display Infrastructure Details
+        run: |
+          echo "## 🏗️ Infrastructure Provisioned" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Component | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource Group | ${{ needs.provision.outputs.resourceGroupName }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| AKS Cluster | ${{ needs.provision.outputs.aksClusterName }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| ACR Server | ${{ needs.provision.outputs.acrLoginServer }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ github.event.inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Region | ${{ github.event.inputs.region }} |" >> $GITHUB_STEP_SUMMARY

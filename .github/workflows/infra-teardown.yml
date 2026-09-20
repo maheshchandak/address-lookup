@@ -1,0 +1,118 @@
+name: 'Teardown Infrastructure'
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "yes" to confirm deletion'
+        required: true
+        default: 'no'
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  teardown:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Confirm Deletion
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "yes" ]; then
+            echo "❌ Deletion cancelled. You must type 'yes' to confirm."
+            exit 1
+          fi
+          echo "✅ Deletion confirmed. Proceeding..."
+
+      - name: Azure Login (Federated Credentials)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          auth-type: OIDC
+
+      - name: Get Resource Group Status
+        id: status
+        run: |
+          RG_NAME="rg-address-lookup"
+          
+          if az group exists --name "$RG_NAME" | grep -q true; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Resource group exists: $RG_NAME"
+            
+            # Get resource count
+            RESOURCE_COUNT=$(az resource list \
+              --resource-group "$RG_NAME" \
+              --query "length(@)" \
+              --output tsv)
+            echo "resourceCount=$RESOURCE_COUNT" >> $GITHUB_OUTPUT
+            echo "📦 Resources in group: $RESOURCE_COUNT"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Resource group does not exist"
+          fi
+
+      - name: Teardown Infrastructure
+        if: steps.status.outputs.exists == 'true'
+        run: |
+          RG_NAME="rg-address-lookup"
+          
+          echo "🗑️  Deleting resource group: $RG_NAME"
+          echo "⚠️  This will delete all resources including AKS cluster, ACR, Key Vault, etc."
+          echo "⏳ This may take 5-10 minutes..."
+          
+          az group delete \
+            --name "$RG_NAME" \
+            --yes \
+            --no-wait
+          
+          echo "✅ Resource group deletion initiated"
+          echo "📝 Deletion is in progress. Check Azure Portal to monitor."
+
+      - name: Teardown Summary
+        run: |
+          echo "
+          ========================================
+          🗑️  INFRASTRUCTURE TEARDOWN INITIATED
+          ========================================
+          
+          Resource Group: rg-address-lookup
+          Status: Deletion in progress
+          
+          Resources deleted:
+          - AKS Cluster
+          - Azure Container Registry
+          - Key Vault
+          - Virtual Network
+          - Managed Identity
+          - Log Analytics Workspace
+          - Application Insights
+          
+          ⏳ Deletion may take 5-10 minutes
+          
+          Next steps:
+          1. Monitor in Azure Portal
+          2. Wait for deletion to complete
+          3. Run 'Provision Infrastructure' when ready to recreate
+          
+          ========================================"
+
+      - name: Teardown Report
+        if: always()
+        run: |
+          echo "## 🗑️ Infrastructure Teardown" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Resource Group**: rg-address-lookup" >> $GITHUB_STEP_SUMMARY
+          echo "**Status**: Deletion initiated" >> $GITHUB_STEP_SUMMARY
+          echo "**Estimated Time**: 5-10 minutes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Resources Scheduled for Deletion:" >> $GITHUB_STEP_SUMMARY
+          echo "- AKS Cluster (aks-address-lookup)" >> $GITHUB_STEP_SUMMARY
+          echo "- ACR (addresslookupacr)" >> $GITHUB_STEP_SUMMARY
+          echo "- Key Vault" >> $GITHUB_STEP_SUMMARY
+          echo "- Virtual Network" >> $GITHUB_STEP_SUMMARY
+          echo "- Log Analytics Workspace" >> $GITHUB_STEP_SUMMARY
+          echo "- Application Insights" >> $GITHUB_STEP_SUMMARY
