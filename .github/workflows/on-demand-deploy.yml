@@ -94,15 +94,15 @@ jobs:
       - name: Check Infrastructure Status
         id: check
         run: |
-          if az group exists --name "${{ env.RESOURCE_GROUP }}" | grep -q true; then
+          # Check if AKS cluster actually exists (not just the RG)
+          AKS_EXISTS=$(az aks list \
+            --resource-group "${{ env.RESOURCE_GROUP }}" \
+            --query "[0].name" \
+            --output tsv 2>/dev/null || echo "")
+          
+          if [ -n "$AKS_EXISTS" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
-            echo "✅ Infrastructure exists"
-            
-            # Get AKS cluster name
-            AKS_CLUSTER=$(az aks list \
-              --resource-group "${{ env.RESOURCE_GROUP }}" \
-              --query "[0].name" \
-              --output tsv 2>/dev/null || echo "${{ env.CLUSTER_NAME }}")
+            echo "✅ Infrastructure exists: $AKS_EXISTS"
             
             # Get ACR server
             ACR_SERVER=$(az acr list \
@@ -110,11 +110,11 @@ jobs:
               --query "[0].loginServer" \
               --output tsv 2>/dev/null || echo "${{ env.REGISTRY }}")
             
-            echo "aksClusterName=$AKS_CLUSTER" >> $GITHUB_OUTPUT
+            echo "aksClusterName=$AKS_EXISTS" >> $GITHUB_OUTPUT
             echo "acrLoginServer=$ACR_SERVER" >> $GITHUB_OUTPUT
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️ Infrastructure does not exist - will provision"
+            echo "⚠️ AKS cluster not found - will provision"
           fi
 
   provision-infrastructure:
