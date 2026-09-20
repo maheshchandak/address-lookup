@@ -10,6 +10,11 @@ env:
   REGISTRY: addresslookupacr.azurecr.io
   IMAGE_NAME: address-lookup-api
 
+permissions:
+  checks: write
+  pull-requests: write
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
