@@ -38,7 +38,6 @@ var tags = {
   environment: environment
   project: projectName
   createdBy: 'GitHub Actions'
-  createdDate: utcNow('u')
 }
 
 // Log Analytics Workspace
