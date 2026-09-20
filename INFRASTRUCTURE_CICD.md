@@ -503,6 +503,7 @@ kubectl describe pod <pod-name>
 
 ### View Infrastructure in Azure Portal
 
+**Your Resource Group:**
 ```
 Search for: "rg-address-lookup"
 Shows all resources:
@@ -513,6 +514,16 @@ Shows all resources:
 - Log Analytics Workspace
 - Application Insights
 ```
+
+**AKS Managed Resource Group (Auto-Created by Azure):**
+```
+You'll also see: MC_rg-address-lookup_aks-address-lookup_uksouth
+- Contains: Worker VMs, network interfaces, disks, load balancers
+- Managed by: Azure (don't edit manually)
+- Deleted automatically: When you tear down rg-address-lookup
+```
+
+Both resource groups will appear in your subscription's resource group list.
 
 ### Common Issues
 
@@ -557,6 +568,24 @@ Shows all resources:
 - **Name**: `rg-address-lookup`
 - **Location**: `uksouth` (customizable)
 - **Lifecycle**: On-demand creation/deletion
+- **Contents**: AKS cluster, ACR, Key Vault, VNet, Managed Identity, Monitoring
+
+### AKS Managed Resource Group (Auto-Generated)
+- **Name**: `MC_rg-address-lookup_aks-address-lookup_uksouth`
+- **Created by**: Azure automatically when AKS cluster is created
+- **Managed by**: Azure (you don't manage this directly)
+- **Contents**: Worker VMs, network interfaces, storage disks, load balancer resources
+- **Deletion**: Automatically deleted when you tear down `rg-address-lookup`
+- **Important**: Don't manually edit resources in this group; Azure manages them
+
+**What you'll see in Azure Portal:**
+```
+Your Resource Groups:
+  ├─ rg-address-lookup (you control this)
+  └─ MC_rg-address-lookup_aks-address-lookup_uksouth (Azure manages this)
+```
+
+Both are deleted when you run the teardown workflow.
 
 ### AKS Cluster
 - **Name**: `aks-address-lookup`
