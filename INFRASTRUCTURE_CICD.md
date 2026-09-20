@@ -27,10 +27,35 @@ Complete automation for provisioning, deploying, and tearing down AKS infrastruc
 # All resources deleted, no more costs
 ```
 
-### 3. For Development (Continuous Deployment)
+### 3. Add Secrets to Key Vault
 
 ```bash
-# After infrastructure is provisioned once:
+# After infrastructure is provisioned, add the Postcodes.io API secret:
+
+# Option A: Using Azure CLI
+az keyvault secret set \
+  --vault-name kv-address-lookup-<unique-suffix> \
+  --name PostcodesIOApiUrl \
+  --value "https://api.postcodes.io"
+
+# Option B: Using Azure Portal
+# 1. Go to Azure Portal → Search "kv-address-lookup"
+# 2. Click Key Vault resource
+# 3. Left menu → "Secrets"
+# 4. Click "+ Generate/Import"
+# 5. Name: PostcodesIOApiUrl
+# 6. Value: https://api.postcodes.io
+# 7. Click "Create"
+
+# Find the Key Vault name:
+# GitHub Actions workflow output shows: keyVaultName
+# Or use: az keyvault list --query "[].name"
+```
+
+### 4. For Development (Continuous Deployment)
+
+```bash
+# After infrastructure is provisioned and secrets added:
 # Just push to master branch
 # build.yml runs automatically
 # deploy.yml runs automatically
@@ -255,6 +280,116 @@ GitHub Secrets:
 
 ---
 
+## Secrets Management
+
+### How Application Uses Secrets
+
+Your application uses `DefaultAzureCredential` which automatically reads secrets from:
+
+1. **Local Development**: User Secrets (Secret Manager)
+2. **AKS Production**: Key Vault (via managed identity)
+
+The application expects this secret:
+```
+Key Vault Secret Name: PostcodesIOApiUrl
+Value: https://api.postcodes.io (or your API endpoint)
+```
+
+### Add Secret After Infrastructure Provisioning
+
+**Step 1: Get the Key Vault Name**
+
+From workflow output or run:
+```bash
+# List all key vaults
+az keyvault list --query "[].name" -o table
+
+# Or get from resource group
+az keyvault list --resource-group rg-address-lookup --query "[].name" -o table
+```
+
+**Step 2: Add the Secret**
+
+**Method A: Azure CLI (Recommended)**
+```bash
+az keyvault secret set \
+  --vault-name kv-address-lookup-<unique-suffix> \
+  --name PostcodesIOApiUrl \
+  --value "https://api.postcodes.io"
+
+# Verify it was added
+az keyvault secret show \
+  --vault-name kv-address-lookup-<unique-suffix> \
+  --name PostcodesIOApiUrl
+```
+
+**Method B: Azure Portal**
+1. Go to [Azure Portal](https://portal.azure.com)
+2. Search for "kv-address-lookup"
+3. Click the Key Vault resource
+4. Left menu → **Secrets**
+5. Click **+ Generate/Import**
+6. Fill in:
+   - Name: `PostcodesIOApiUrl`
+   - Value: `https://api.postcodes.io`
+7. Click **Create**
+
+**Method C: PowerShell**
+```powershell
+Set-AzKeyVaultSecret -VaultName "kv-address-lookup-<unique-suffix>" `
+  -Name "PostcodesIOApiUrl" `
+  -SecretValue (ConvertTo-SecureString "https://api.postcodes.io" -AsPlainText -Force)
+```
+
+**Step 3: Verify Application Can Access Secret**
+
+Check pod logs to confirm application is reading the secret:
+```bash
+kubectl logs deployment/address-lookup-api --tail=50
+
+# Should show successful startup without auth errors
+```
+
+If secret is missing, you'll see in logs:
+```
+Secret 'PostcodesIOApiUrl' not found in Key Vault
+```
+
+### Secret Update Process
+
+**To update a secret in production:**
+
+```bash
+# Update the secret
+az keyvault secret set \
+  --vault-name kv-address-lookup-<unique-suffix> \
+  --name PostcodesIOApiUrl \
+  --value "https://new-api-endpoint.com"
+
+# Restart pods to pick up new value
+kubectl rollout restart deployment/address-lookup-api
+
+# Verify new pods running
+kubectl get pods
+```
+
+### Security Best Practices
+
+✅ **Do:**
+- Store all API keys and URLs in Key Vault (never in code)
+- Rotate secrets periodically
+- Use RBAC to limit who can read secrets
+- Enable Key Vault audit logging
+- Use managed identities for authentication
+
+❌ **Don't:**
+- Store secrets in environment variables (visible in pod spec)
+- Commit secrets to Git
+- Share Key Vault keys via email/chat
+- Use hardcoded credentials in container images
+
+---
+
 ## Workflow Triggers
 
 ### Automatic Triggers
@@ -392,6 +527,23 @@ Shows all resources:
 - Check: API endpoint - `curl http://<IP>/health`
 - Check: Network connectivity - security groups, NSG rules
 
+**Issue**: Application can't access Key Vault secrets
+- Check: Pod logs for "Secret not found" or auth errors
+- Verify: Secret exists - `az keyvault secret show --vault-name <kv-name> --name PostcodesIOApiUrl`
+- Verify: Managed identity has permissions - check Key Vault access policies
+- Solution: Add the secret using steps in "Secrets Management" section above
+
+**Issue**: Managed identity can't read Key Vault
+- Check: Key Vault access policies - managed identity must be listed
+- Check: Identity has "get" and "list" permissions on secrets
+- Solution: 
+  ```bash
+  az keyvault set-policy \
+    --name kv-address-lookup-<suffix> \
+    --object-id <managed-identity-principal-id> \
+    --secret-permissions get list
+  ```
+
 **Issue**: Teardown not completing
 - Check: Azure Portal for stuck deletions
 - Check: Activity Log for detailed errors
@@ -450,21 +602,37 @@ Shows all resources:
 1. **Provision Infrastructure**:
    ```
    GitHub Actions → "On-Demand: Provision & Deploy" → Run
+   Wait ~20 minutes for completion
    ```
 
-2. **Test API**:
+2. **Add Secrets to Key Vault**:
+   ```bash
+   # Get Key Vault name from workflow output
+   az keyvault secret set \
+     --vault-name kv-address-lookup-<unique-suffix> \
+     --name PostcodesIOApiUrl \
+     --value "https://api.postcodes.io"
    ```
+
+3. **Restart Application Pods** (to pick up secrets):
+   ```bash
+   kubectl rollout restart deployment/address-lookup-api
+   kubectl get pods  # Wait for new pods to be Ready
+   ```
+
+4. **Test API**:
+   ```bash
    curl http://<LoadBalancer-IP>/api/addresses/search?postcode=SW1A1AA
    ```
 
-3. **Make Changes & Deploy**:
-   ```
+5. **Make Changes & Deploy**:
+   ```bash
    git push origin master
    build.yml + deploy.yml run automatically
    ```
 
-4. **Save Costs**:
-   ```
+6. **Save Costs**:
+   ```bash
    GitHub Actions → "Teardown Infrastructure" → Run (type "yes")
    ```
 
@@ -486,3 +654,4 @@ For issues:
 2. Check pod logs: `kubectl logs deployment/address-lookup-api`
 3. Check Activity Log in Azure Portal
 4. Review troubleshooting section above
+5. Verify secrets in Key Vault: `az keyvault secret list --vault-name <kv-name>`
