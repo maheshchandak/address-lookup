@@ -266,16 +266,6 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
   }
 }
 
-// Grant AKS access to ACR
-resource acrRoleAssignment 'Microsoft.Authorization/roleAssignments@2023-04-01-preview' = {
-  scope: acr
-  name: guid(acr.id, managedIdentity.id, 'AcrPull')
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-338473d6067b') // AcrPull role
-    principalId: managedIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
 
 // AKS Cluster
 resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-01-01' = {
@@ -326,17 +316,6 @@ resource aksCluster 'Microsoft.ContainerService/managedClusters@2024-01-01' = {
         enabled: false
       }
     }
-  }
-}
-
-// Grant AKS managed identity access to ACR
-resource aksAcrRoleAssignment 'Microsoft.Authorization/roleAssignments@2023-04-01-preview' = {
-  scope: acr
-  name: guid(acr.id, aksCluster.id, 'AcrPull')
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-338473d6067b') // AcrPull role
-    principalId: aksCluster.identity.principalId
-    principalType: 'ServicePrincipal'
   }
 }
 

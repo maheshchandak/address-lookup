@@ -134,6 +134,44 @@ jobs:
           echo "📦 AKS Cluster: $AKS_CLUSTER"
           echo "📦 ACR Server: $ACR_LOGIN"
 
+      - name: Grant ACR Permissions
+        run: |
+          ACR_NAME="${{ steps.provision.outputs.acrLoginServer }}"
+          ACR_NAME="${ACR_NAME%%.azurecr.io}"
+          ACR_ID=$(az acr show --name "$ACR_NAME" --query id --output tsv)
+          
+          # Get managed identity principal ID
+          IDENTITY_PRINCIPAL=$(az identity show \
+            --resource-group "${{ steps.rg.outputs.resourceGroupName }}" \
+            --name "uami-address-lookup" \
+            --query principalId \
+            --output tsv)
+          
+          # Get AKS principal ID
+          AKS_PRINCIPAL=$(az aks show \
+            --resource-group "${{ steps.rg.outputs.resourceGroupName }}" \
+            --name "${{ steps.provision.outputs.aksClusterName }}" \
+            --query identity.principalId \
+            --output tsv)
+          
+          # Assign AcrPull to managed identity
+          echo "📝 Assigning AcrPull to managed identity..."
+          az role assignment create \
+            --role "AcrPull" \
+            --assignee-object-id "$IDENTITY_PRINCIPAL" \
+            --scope "$ACR_ID" \
+            --assignee-principal-type ServicePrincipal 2>/dev/null || echo "✅ Already assigned"
+          
+          # Assign AcrPull to AKS system identity
+          echo "📝 Assigning AcrPull to AKS system identity..."
+          az role assignment create \
+            --role "AcrPull" \
+            --assignee-object-id "$AKS_PRINCIPAL" \
+            --scope "$ACR_ID" \
+            --assignee-principal-type ServicePrincipal 2>/dev/null || echo "✅ Already assigned"
+          
+          echo "✅ ACR permissions granted"
+
       - name: Get AKS Credentials
         run: |
           az aks get-credentials \
